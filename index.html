@@ -30,6 +30,24 @@
         look-controls
         wasd-controls>
       </a-entity>
+
+      <!-- Template for cards -->
+      <template id="card-template">
+        <a-entity 
+          geometry="primitive: plane; height: 1; width: 2"
+          material="color: yellow"
+          grabbable
+          draggable
+          stretchable>
+        </a-entity>
+      </template>
+
+      <!-- Example card -->
+      <a-entity 
+        networked="template:#card-template; attachTemplateToLocal:true"
+        position="0 1 -3">
+      </a-entity>
+      
     </a-scene>
   </body>
 </html>
