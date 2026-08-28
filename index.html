@@ -2,57 +2,16 @@
 <html>
   <head>
     <meta charset="utf-8">
-    <title>Multiuser A-Frame Room</title>
-
-    <!-- A-Frame -->
+    <title>A-Frame Test</title>
     <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
-
-    <!-- Networked-Aframe -->
-    
-
-    <!-- Super Hands (for grabbing/moving cards) -->
-    <script src="https://unpkg.com/super-hands/dist/super-hands.min.js"></script>
   </head>
 
   <body>
-    <a-scene networked-scene="debug: true">
-
-      <!-- Template for avatars -->
-      <template id="avatar-template">
-        <a-entity>
-          <a-sphere color="#4CC3D9" radius="0.25"></a-sphere>
-        </a-entity>
-      </template>
-
-      <!-- Template for cards -->
-      <template id="card-template">
-        <a-entity 
-          geometry="primitive: plane; height: 1; width: 2"
-          material="color: yellow"
-          grabbable
-          draggable
-          stretchable>
-        </a-entity>
-      </template>
-
-      <!-- Example card -->
-      <a-entity 
-        networked="template:#card-template; attachTemplateToLocal:true"
-        position="0 1 -3">
-      </a-entity>
-
-      <!-- Avatar for each user -->
-      <a-entity 
-        id="player"
-        networked="template:#avatar-template; attachTemplateToLocal:true"
-        camera
-        look-controls
-        wasd-controls>
-      </a-entity>
-
-      <!-- Floor -->
-      <a-plane rotation="-90 0 0" width="20" height="20" color="#7BC8A4"></a-plane>
-
+    <a-scene>
+      <a-box position="0 1 -3" color="blue"></a-box>
+      <a-plane rotation="-90 0 0" width="10" height="10" color="#ccc"></a-plane>
+      <a-sky color="#ECECEC"></a-sky>
     </a-scene>
   </body>
 </html>
+
