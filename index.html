@@ -21,6 +21,15 @@
           <a-sphere color="#4CC3D9" radius="0.25"></a-sphere>
         </a-entity>
       </template>
+
+      <!-- Avatar for each user -->
+      <a-entity 
+        id="player"
+        networked="template:#avatar-template; attachTemplateToLocal:true"
+        camera
+        look-controls
+        wasd-controls>
+      </a-entity>
     </a-scene>
   </body>
 </html>
