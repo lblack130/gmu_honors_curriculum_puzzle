@@ -1,29 +1,384 @@
-<script src="https://aframe.io/releases/1.8.0/aframe.min.js"></script>
-<script>
-  AFRAME.registerComponent('change-color-on-hover', {
-    schema: {
-      color: {default: 'red'}
-    },
+<html>
+	<head>
+		<script src="https://aframe.io/releases/1.8.0/aframe.min.js"></script>
+    		<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.8.1/socket.io.min.js"></script>
+    		<script src="/easyrtc/easyrtc.js"></script>
+    		<script src="https://unpkg.com/networked-aframe@^0.14.0/dist/networked-aframe.min.js"></script>
+		<script>
+			AFRAME.registerComponent('spawn-in-circle', {
+  				schema: {
+    					radius: {type: 'number', default: 1}
+  				},
 
-    init: function () {
-      var data = this.data;
-      var el = this.el;  // <a-box>
-      var defaultColor = el.getAttribute('material').color;
+  				init: function() {
+    					var el = this.el;
+    					var center = el.getAttribute('position');
 
-      el.addEventListener('mouseenter', function () {
-        el.setAttribute('color', data.color);
-      });
+					//Randomly positions object in circle
+    					var angleRad = this.getRandomAngleInRadians();
+    					var circlePoint = this.randomPointOnCircle(this.data.radius, angleRad);
+					var worldPoint = {x: circlePoint.x + center.x, y: center.y, z: circlePoint.y + center.z};
+					el.setAttribute('position', worldPoint);
+					
+					//Randomly rotates object
+//    					var angleDeg = angleRad * 180 / Math.PI;
+//    					var angleToCenter = -1 * angleDeg + 90;
+//    					angleRad = THREE.MathUtils.degToRad(angleToCenter);
+//    					el.object3D.rotation.set(0, angleRad, 0);
+  				},
 
-      el.addEventListener('mouseleave', function () {
-        el.setAttribute('color', defaultColor);
-      });
-    }
-  });
-</script>
-<body>
-  <a-scene>
-    <a-box color="#EF2D5E" position="0 1 -4" change-color-on-hover="color: blue"></a-box>
+				getRandomAngleInRadians: function() {
+    					return Math.random() * Math.PI * 2;
+  				},
 
-    <a-camera><a-cursor></a-cursor></a-camera>
-  </a-scene>
-</body>
+				randomPointOnCircle: function (radius, angleRad) {
+    					var x = Math.cos(angleRad) * radius;
+	    				var y = Math.sin(angleRad) * radius;
+    					return {x: x, y: y};
+  				}
+			});
+		</script>
+		<script>
+  			AFRAME.registerComponent('arrow-wasd-controls', {
+    				schema: {
+      					moveSpeed: {type: 'number', default: 0.1},
+      					turnSpeed: {type: 'number', default: 2.0}
+    				},
+    				init: function () {
+      					this.keys = {};
+      					window.addEventListener('keydown', (e) => { this.keys[e.code] = true; });
+      					window.addEventListener('keyup', (e) => { this.keys[e.code] = false; });
+    				},
+    				tick: function (time, delta) {
+      					const rot = this.el.getAttribute('rotation');
+      					const pos = this.el.getAttribute('position');
+      					const dt = delta / 1000;
+
+      					// Turn using Q and E (WASD rotation)
+      					if (this.keys['KeyQ']) rot.y += this.data.turnSpeed * dt * 45;
+      					if (this.keys['KeyE']) rot.y -= this.data.turnSpeed * dt * 45;
+
+      					// Calculate direction vectors based on current rotation
+      					const rad = THREE.MathUtils.degToRad(rot.y);
+      					const moveStep = this.data.moveSpeed * (delta / 16.6);
+
+      					// Move using WASD Keys
+      					if (this.keys['KeyW']) {
+        					pos.x -= Math.sin(rad) * moveStep;
+        					pos.z -= Math.cos(rad) * moveStep;
+      					}
+      					if (this.keys['KeyS']) {
+        					pos.x += Math.sin(rad) * moveStep;
+        					pos.z += Math.cos(rad) * moveStep;
+      					}
+      					if (this.keys['KeyA']) {
+        					pos.x -= Math.cos(rad) * moveStep;
+        					pos.z += Math.sin(rad) * moveStep;
+      					}
+      					if (this.keys['KeyD']) {
+        					pos.x += Math.cos(rad) * moveStep;
+        					pos.z -= Math.sin(rad) * moveStep;
+      					}
+					
+
+					//Flight using SHIFT
+					if (this.keys['ShiftLeft']){
+						pos.y += moveStep;
+					}
+					if (this.keys['KeyR']){
+						pos.y -= moveStep;
+					}
+
+      					this.el.setAttribute('rotation', rot);
+      					this.el.setAttribute('position', pos);
+    				}
+  			});
+		</script>
+    		<script>
+			const selectedBoxes = new Set();
+
+  			AFRAME.registerComponent('multi-select-move', {
+    				schema: {
+      					activeColor: {default: 'black'}
+    				},
+
+	    			init: function () {
+      					const el = this.el;
+      					const sceneEl = el.sceneEl;
+
+      					// Store the box's original color
+      					const originalColor = el.getAttribute('color');
+
+	      				const raycaster = new THREE.Raycaster();
+      					const mouse = new THREE.Vector2();
+
+      					function updateMouse(event) {
+        					const rect = sceneEl.canvas.getBoundingClientRect();
+        					mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        					mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+	      				}
+
+ 	     				// Click or Shift‑Click selection
+      					window.addEventListener('mousedown', (event) => {
+        					updateMouse(event);
+        					raycaster.setFromCamera(mouse, sceneEl.camera);
+	
+        					const intersects = raycaster.intersectObject(el.object3D, true);
+	
+        					if (intersects.length > 0) {
+          						if (event.shiftKey) {
+            							// SHIFT‑CLICK: add/remove from selection group
+            							if (selectedBoxes.has(el)) {
+              								selectedBoxes.delete(el);
+              								el.setAttribute('color', originalColor);
+            							} else {
+              								selectedBoxes.add(el);
+	              							el.setAttribute('color', this.data.activeColor);
+        	    						}
+          						} else {
+            							// NORMAL CLICK: toggle only this box
+            							if (selectedBoxes.has(el)) {
+              								selectedBoxes.delete(el);
+              								el.setAttribute('color', originalColor);
+            							} else {
+              								selectedBoxes.add(el);
+	              							el.setAttribute('color', this.data.activeColor);
+        	    						}
+          						}
+        					}
+      					});
+
+	      				// Movement keys apply to ALL selected boxes
+      					window.addEventListener('keydown', (event) => {
+        					if (selectedBoxes.size === 0) return;
+
+        					selectedBoxes.forEach(box => {
+          						const pos = box.getAttribute('position');
+
+          						switch (event.key) {
+            							case 'i': case 'I': pos.z -= 0.2; break;
+	            						case 'k': case 'K': pos.z += 0.2; break;
+        	    						case 'j': case 'J': pos.x -= 0.2; break;
+            							case 'l': case 'L': pos.x += 0.2; break;
+
+            							case 'u': case 'U': pos.y += 0.2; break;
+            							case 'o': case 'O': pos.y -= 0.2; break;
+          						}
+
+          						box.setAttribute('position', pos);
+	        				});
+      					});
+    				}
+  			});
+		</script>
+  	</head>
+  	<body>
+	    	<a-scene networked-scene="
+			app: gmu_honors_curr_puz;
+			room: room1;
+			debug: true;">
+			<a-assets>
+  	    			<template id="avatar-template">
+					<a-entity class="avatar">
+      						<a-sphere class="head"
+        						color="#5985ff"
+        						scale="0.45 0.5 0.4"
+	      					></a-sphere>
+		      				<a-entity class="face"
+        						position="0 0.05 0"
+      						>
+        						<a-sphere class="eye"
+          							color="#efefef"
+	          						position="0.16 0.1 -0.35"
+        	  						scale="0.12 0.12 0.12"
+		        				>
+			          				<a-sphere class="pupil"
+	        			    				color="#000"
+        	    							position="0 0 -1"
+	        	    						scale="0.2 0.2 0.2"
+	        		  				></a-sphere>
+		        				</a-sphere>
+		        				<a-sphere class="eye"
+        		  					color="#efefef"
+          							position="-0.16 0.1 -0.35"
+ 	         						scale="0.12 0.12 0.12"
+        						>
+	          						<a-sphere class="pupil"
+	        							color="#000"
+        	    							position="0 0 -1"
+		            						scale="0.2 0.2 0.2"
+	        	  					></a-sphere>
+	        					</a-sphere>
+			      			</a-entity>
+					</a-entity>
+				</template>
+			</a-assets>
+	
+			<a-entity id="player" networked="template:#avatar-template;attachTemplateToLocal:false;" camera position="0 1.3 0" spawn-in-circle="radius:3;" arrow-wasd-controls>
+			</a-entity>
+			<a-plane rotation="-90 0 0" width="100" height="100" color="#ccc"></a-plane>
+      			<a-sky color="#ECECEC"></a-sky>
+			<a-box multi-select-move width="2" depth="2" height="2" position="20 1 0" color="#005239">
+				<a-text value="Multi-Disciplinary\nChallenges" position="0 0 1.01" align="center" color="white" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Multi-Disciplinary\nChallenges" position="0 0 -1.01" rotation="0 180 0" align="center" color="white" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Multi-Disciplinary\nChallenges" position="1.01 0 0" rotation="0 90 0" align="center" color="white" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Multi-Disciplinary\nChallenges" position="-1.01 0 0" rotation="0 -90 0" align="center" color="white" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Multi-Disciplinary\nChallenges" position="0 1.01 0" rotation="-90 0 0" align="center" color="white" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Multi-Disciplinary\nChallenges" position="0 -1.01 0" rotation="90 0 0" align="center" color="white" scale="0.7 0.7 0.7"></a-text>
+			</a-box>
+			<a-box multi-select-move width="2" depth="2" height="2" position="20 1 -4" color="#005239">
+				<a-text value="Civic Engagement" position="0 0 1.01" align="center" color="white" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Civic Engagement" position="0 0 -1.01" rotation="0 180 0" align="center" color="white" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Civic Engagement" position="1.01 0 0" rotation="0 90 0" align="center" color="white" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Civic Engagement" position="-1.01 0 0" rotation="0 -90 0" align="center" color="white" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Civic Engagement" position="0 1.01 0" rotation="-90 0 0" align="center" color="white" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Civic Engagement" position="0 -1.01 0" rotation="90 0 0" align="center" color="white" scale="0.7 0.7 0.7"></a-text>
+			</a-box>
+			<a-box multi-select-move width="2" depth="2" height="2" position="18 1 -8" color="#005239">
+				<a-text value="Foundations" position="0 0 1.01" align="center" color="white" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Foundations" position="0 0 -1.01" rotation="0 180 0" align="center" color="white" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Foundations" position="1.01 0 0" rotation="0 90 0" align="center" color="white" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Foundations" position="-1.01 0 0" rotation="0 -90 0" align="center" color="white" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Foundations" position="0 1.01 0" rotation="-90 0 0" align="center" color="white" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Foundations" position="0 -1.01 0" rotation="90 0 0" align="center" color="white" scale="0.7 0.7 0.7"></a-text>
+			</a-box>
+			<a-box multi-select-move width="2" depth="2" height="2" position="17 1 -11" color="#005239">
+				<a-text value="Inquiry in the Arts,\nHumanities,\n& Social Sciences" position="0 0 1.01" align="center" color="white" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Inquiry in the Arts,\nHumanities,\n& Social Sciences" position="0 0 -1.01" rotation="0 180 0" align="center" color="white" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Inquiry in the Arts,\nHumanities,\n& Social Sciences" position="1.01 0 0" rotation="0 90 0" align="center" color="white" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Inquiry in the Arts,\nHumanities,\n& Social Sciences" position="-1.01 0 0" rotation="0 -90 0" align="center" color="white" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Inquiry in the Arts,\nHumanities,\n& Social Sciences" position="0 1.01 0" rotation="-90 0 0" align="center" color="white" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Inquiry in the Arts,\nHumnaities,\n& Social Sciences" position="0 -1.01 0" rotation="90 0 0" align="center" color="white" scale="0.7 0.7 0.7"></a-text>
+			</a-box>
+<!--			<a-box multi-select-move width="2" depth="2" height="2" position="2 1 0" color="#727579">
+				<a-text value="Inquiry-Based\nLearning" position="0 0 1.01" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Inquiry-Based\nLearning" position="0 0 -1.01" rotation="0 180 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Inquiry-Based\nLearning" position="1.01 0 0" rotation="0 90 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Inquiry-Based\nLearning" position="-1.01 0 0" rotation="0 -90 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Inquiry-Based\nLearning" position="0 1.01 0" rotation="-90 0 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Inquiry-Based\nLearning" position="0 -1.01 0" rotation="90 0 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+			</a-box>
+			<a-box multi-select-move width="2" depth="2" height="2" position="2 1 -1" color="#727579">
+				<a-text value="Exploring\nMultiple\nPerspectives\nin Context" position="0 0 1.01" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Exploring\nMultiple\nPerspectives\nin Context" position="0 0 -1.01" rotation="0 180 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Exploring\nMultiple\nPerspectives\nin Context" position="1.01 0 0" rotation="0 90 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Exploring\nMultiple\nPerspectives\nin Context" position="-1.01 0 0" rotation="0 -90 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Exploring\nMultiple\nPerspectives\nin Context" position="0 1.01 0" rotation="-90 0 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Exploring\nMultiple\nPerspectives\nin Context" position="0 -1.01 0" rotation="90 0 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+			</a-box>
+			<a-box multi-select-move width="2" depth="2" height="2" position="2 1 -2" color="#727579">
+				<a-text value="Evidence-Based\nReasoning" position="0 0 1.01" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Evidence-Based\nReasoning" position="0 0 -1.01" rotation="0 180 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Evidence-Based\nReasoning" position="1.01 0 0" rotation="0 90 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Evidence-Based\nReasoning" position="-1.01 0 0" rotation="0 -90 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Evidence-Based\nReasoning" position="0 1.01 0" rotation="-90 0 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Evidence-Based\nReasoning" position="0 -1.01 0" rotation="90 0 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+			</a-box>
+-->
+			<a-box multi-select-move width="2" depth="2" height="2" position="14 1 -14" color="white">
+				<a-text value="HNRS 130:\nIdentity,\nCommunity,\nand Difference" position="0 0 1.01" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 130:\nIdentity,\nCommunity,\nand Difference" position="0 0 -1.01" rotation="0 180 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 130:\nIdentity,\nCommunity,\nand Difference" position="1.01 0 0" rotation="0 90 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 130:\nIdentity,\nCommunity,\nand Difference" position="-1.01 0 0" rotation="0 -90 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 130:\nIdentity,\nCommunity,\nand Difference" position="0 1.01 0" rotation="-90 0 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 130:\nIdentity,\nCommunity,\nand Difference" position="0 -1.01 0" rotation="90 0 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+			</a-box>
+			<a-box mutli-select-move width="2" depth="2" height="2" position="11 1 -17" color="white">
+				<a-text value="HNRS 131:\nContemporary\nSocial Issues" position="0 0 1.01" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 131:\nContemporary\nSocial Issues" position="0 0 -1.01" rotation="0 180 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 131:\nContemporary\nSocial Issues" position="1.01 0 0" rotation="0 90 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 131:\nContemporary\nSocial Issues" position="-1.01 0 0" rotation="0 -90 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 131:\nContemporary\nSocial Issues" position="0 1.01 0" rotation="-90 0 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 131:\nContemporary\nSocial Issues" position="0 -1.01 0" rotation="90 0 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+			</a-box>
+			<a-box multi-select-move width="2" depth="2" height="2" position="8 1 -18" color="white">
+				<a-text value="HNRS 122:\nReading the Arts" position="0 0 1.01" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 122:\nReading the Arts" position="0 0 -1.01" rotation="0 180 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 122:\nReading the Arts" position="1.01 0 0" rotation="0 90 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 122:\nReading the Arts" position="-1.01 0 0" rotation="0 -90 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 122:\nReading the Arts" position="0 1.01 0" rotation="-90 0 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 122:\nReading the Arts" position="0 -1.01 0" rotation="90 0 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+			</a-box>
+			<a-box multi-select-move width="2" depth="2" height="2" position="4 1 -20" color="white">
+				<a-text value="HNRS 240:\nReading the Past" position="0 0 1.01" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 240:\nReading the Past" position="0 0 -1.01" rotation="0 180 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 240:\nReading the Past" position="1.01 0 0" rotation="0 90 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 240:\nReading the Past" position="-1.01 0 0" rotation="0 -90 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 240:\nReading the Past" position="0 1.01 0" rotation="-90 0 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 240:\nReading the Past" position="0 -1.01 0" rotation="90 0 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+			</a-box>
+			<a-box multi-select-move width="2" depth="2" height="2" position="0 1 -20" color="white">
+				<a-text value="HNRS 260:\nSociety and\nCommunity\nEngagement" position="0 0 1.01" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 260:\nSociety and\nCommunity\nEngagement" position="0 0 -1.01" rotation="0 180 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 260:\nSociety and\nCommunity\nEngagement" position="1.01 0 0" rotation="0 90 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 260:\nSociety and\nCommunity\nEngagement" position="-1.01 0 0" rotation="0 -90 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 260:\nSociety and\nCommunity\nEngagement" position="0 1.01 0" rotation="-90 0 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 260:\nSociety and\nCommunity\nEngagement" position="0 -1.01 0" rotation="90 0 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+			</a-box>
+			<a-box multi-select-move width="2" depth="2" height="2" position="-4 1 -20" color="white">
+				<a-text value="HNRS 110:\nPrinciples of\nResearch and\nInquiry" position="0 0 1.01" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 110:\nPrinciples of\nResearch and\nInquiry" position="0 0 -1.01" rotation="0 180 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 110:\nPrinciples of\nResearch and\nInquiry" position="1.01 0 0" rotation="0 90 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 110:\nPrinciples of\nResearch and\nInquiry" position="-1.01 0 0" rotation="0 -90 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 110:\nPrinciples of\nResearch and\nInquiry" position="0 1.01 0" rotation="-90 0 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 110:\nPrinciples of\nResearch and\nInquiry" position="0 -1.01 0" rotation="90 0 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+			</a-box>
+			<a-box multi-select-move width="2" depth="2" height="2" position="-8 1 -18" color="white">
+				<a-text value="HNRS 310:\nPrinciples of\nResearch and\nInquiry\nfor Upper-Level\nEntry Students" position="0 0 1.01" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 310:\nPrinciples of\nResearch and\nInquiry\nfor Upper-Level\nEntry Students" position="0 0 -1.01" rotation="0 180 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 310:\nPrinciples of\nResearch and\nInquiry\nfor Upper-Level\nEntry Students" position="1.01 0 0" rotation="0 90 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 310:\nPrinciples of\nResearch and\nInquiry\nfor Upper-Level\nEntry Students" position="-1.01 0 0" rotation="0 -90 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 310:\nPrinciples of\nResearch and\nInquiry\nfor Upper-Level\nEntry Students" position="0 1.01 0" rotation="-90 0 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 310:\nPrinciples of\nResearch and\nInquiry\nfor Upper-Level\nEntry Students" position="0 -1.01 0" rotation="90 0 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+			</a-box>
+			<a-box multi-select-move width="2" depth="2" height="2" position="-11 1 -17" color="white">
+				<a-text value="HNRS 360:\nMulti-Disciplinary\nTopics" position="0 0 1.01" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 360:\nMulti-Disciplinary\nTopics" position="0 0 -1.01" rotation="0 180 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 360:\nMutli-Disciplinary\nTopics" position="1.01 0 0" rotation="0 90 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 360:\nMulti-Disciplinary\nTopics" position="-1.01 0 0" rotation="0 -90 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 360:\nMulti-Disciplinary\nTopics" position="0 1.01 0" rotation="-90 0 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 360:\nMulti-Disciplinary\nTopics" position="0 -1.01 0" rotation="90 0 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+			</a-box>
+			<a-box multi-select-move width="2" depth="2" height="2" position="-14 1 -14" color="white">
+				<a-text value="HNRS 111:\nHonors College\nColloquium" position="0 0 1.01" align="center" color="black" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 111:\nHonors College\nColloquium" position="0 0 -1.01" rotation="0 180 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 111:\nHonors College\nColloquium" position="1.01 0 0" rotation="0 90 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 111:\nHonors College\nColloquium" position="-1.01 0 0" rotation="0 -90 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 111:\nHonors College\nColloquium" position="0 1.01 0" rotation="-90 0 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="HNRS 111:\nHonors College\nColloquium" position="0 -1.01 0" rotation="90 0 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+			</a-box>
+			<a-box multi-select-move width="2" depth="2" height="2" position="-17 1 -11" color="#FFC733">
+				<a-text value="Introduces practices\nfor identifying and pursuing\nlines of inquiry and\narticulating the\ncivic and scholarly\nsignificance of findings" position="0 0 1.01" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Introduces practices\nfor identifying and pursuing\nlines of inquiry and\narticulating the\ncivic and scholarly\nsignificance of findings" position="0 0 -1.01" rotation="0 180 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Introduces practices\nfor identifying and pursuing\nlines of inquiry and\narticulating the\ncivic and scholarly\nsignificance of findings" position="1.01 0 0" rotation="0 90 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Introduces practices\nfor identifying and pursuing\nlines of inquiry and\narticulating the\ncivic and scholarly\nsignificance of findings" position="-1.01 0 0" rotation="0 -90 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Introduces practices\nfor identifying and pursuing\nlines of inquiry and\narticulating the\ncivic and scholarly\nsignificance of findings" position="0 1.01 0" rotation="-90 0 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Introduces practices\nfor identifying and pursuing\nlines of inquiry and\narticulating the\ncivic and scholarly\nsignificance of findings" position="0 -1.01 0" rotation="90 0 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+			</a-box>
+			<a-box multi-select-move width="2" depth="2" height="2" position="-18 1 -8" color="#FFC733">
+				<a-text value="Focused lines of\ninquiry in the arts,\nhumanities, and\nsocial sciences, that stress\ncritical reading, writing,\nand thinking" position="0 0 1.01" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Focused lines of\ninquiry in the arts,\nhumanities, and\nsocial sciences, that stress\ncritical reading, writing,\nand thinking" position="0 0 -1.01" rotation="0 180 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Focused lines of\ninquiry in the arts,\nhumanities, and\nsocial sciences, that stress\ncritical reading, writing,\nand thinking" position="1.01 0 0" rotation="0 90 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Focused lines of\ninquiry in the arts,\nhumanities, and\nsocial sciences, that stress\ncritical reading, writing,\nand thinking" position="-1.01 0 0" rotation="0 -90 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Focused lines of\ninquiry in the arts,\nhumanities, and\nsocial sciences, that stress\ncritical reading, writing,\nand thinking" position="0 1.01 0" rotation="-90 0 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Focused lines of\ninquiry in the arts,\nhumanities, and\nsocial sciences, that stress\ncritical reading, writing,\nand thinking" position="0 -1.01 0" rotation="90 0 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+			</a-box>
+			<a-box multi-select-move width="2" depth="2" height="2" position="-20 1 -4" color="#FFC733">
+				<a-text value="Explores roles and\nresponsibilities\nin society and addresses\nissues of public or\ncommunity concern" position="0 0 1.01" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Explores roles and\nresponsibilities\nin society and addresses\nissues of public or\ncommunity concern" position="0 0 -1.01" rotation="0 180 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Explores roles and\nresponsibilities\nin society and addresses\nissues of public or\ncommunity concern" position="1.01 0 0" rotation="0 90 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Explores roles and\nresponsibilities\nin society and addresses\nissues of public or\ncommunity concern" position="-1.01 0 0" rotation="0 -90 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Explores roles and\nresponsibilities\nin society and addresses\nissues of public or\ncommunity concern" position="0 1.01 0" rotation="-90 0 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Explores roles and\nresponsibilities\nin society and addresses\nissues of public or\ncommunity concern" position="0 -1.01 0" rotation="90 0 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+			</a-box>
+			<a-box multi-select-move width="2" depth="2" height="2" position="-20 1 0" color="#FFC733">
+				<a-text value="Addresses complex\nchallenges through\nscholarly research or\nexperiential learning" position="0 0 1.01" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Addresses complex\nchallenges through\nscholarly research or\nexperiential learning" position="0 0 -1.01" rotation="0 180 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Addresses complex\nchallenges through\nscholarly research or\nexperiential learning" position="1.01 0 0" rotation="0 90 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Addresses complex\nchallenges through\nscholarly research or\nexperiential learning" position="-1.01 0 0" rotation="0 -90 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Addresses complex\nchallenges through\nscholarly research or\nexperiential learning" position="0 1.01 0" rotation="-90 0 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+				<a-text value="Addresses complex\nchallenges through\nscholarly research or\nexperiential learning" position="0 -1.01 0" rotation="90 0 0" align="center" color="#333333" scale="0.7 0.7 0.7"></a-text>
+			</a-box>
+	    	</a-scene>
+  	</body>
+</html>
