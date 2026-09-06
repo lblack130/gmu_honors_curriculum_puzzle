@@ -1,7 +1,7 @@
 <html>
 	<head>
 		<script src="https://aframe.io/releases/1.8.0/aframe.min.js"></script>
-//    		<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.8.1/socket.io.min.js"></script>
+    		<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.8.1/socket.io.min.js"></script>
     		<script src="/easyrtc/easyrtc.js"></script>
 		<script>
 			AFRAME.registerComponent('spawn-in-circle', {
@@ -93,82 +93,113 @@
     				}
   			});
 		</script>
-    		<script>
+		<script>
 			const selectedBoxes = new Set();
 
-  			AFRAME.registerComponent('multi-select-move', {
-    				schema: {
-      					activeColor: {default: 'black'}
-    				},
+			AFRAME.registerComponent('multi-select-move', {
+  				schema: {
+    					activeColor: {default: 'black'},
+    					step: {default: 0.02}
+  				},
 
-	    			init: function () {
-      					const el = this.el;
-      					const sceneEl = el.sceneEl;
+  				init: function () {
+    					const el = this.el;
+    					const sceneEl = el.sceneEl;
 
-      					// Store the box's original color
-      					const originalColor = el.getAttribute('color');
+    					const originalColor = el.getAttribute('color');
+					const playerColor = document.querySelector('#player').getAttribute('player-color');
 
-	      				const raycaster = new THREE.Raycaster();
-      					const mouse = new THREE.Vector2();
+    					const raycaster = new THREE.Raycaster();
+    					const mouse = new THREE.Vector2();
 
-      					function updateMouse(event) {
-        					const rect = sceneEl.canvas.getBoundingClientRect();
-        					mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-        					mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-	      				}
+    					function updateMouse(event) {
+      						const rect = sceneEl.canvas.getBoundingClientRect();
+      						mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      						mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    					}
 
- 	     				// Click or Shift‑Click selection
-      					window.addEventListener('mousedown', (event) => {
-        					updateMouse(event);
-        					raycaster.setFromCamera(mouse, sceneEl.camera);
-	
-        					const intersects = raycaster.intersectObject(el.object3D, true);
-	
-        					if (intersects.length > 0) {
-          						if (event.shiftKey) {
-            							// SHIFT‑CLICK: add/remove from selection group
-            							if (selectedBoxes.has(el)) {
-              								selectedBoxes.delete(el);
-              								el.setAttribute('color', originalColor);
-            							} else {
-              								selectedBoxes.add(el);
-	              							el.setAttribute('color', this.data.activeColor);
-        	    						}
-          						} else {
-            							// NORMAL CLICK: toggle only this box
-            							if (selectedBoxes.has(el)) {
-              								selectedBoxes.delete(el);
-              								el.setAttribute('color', originalColor);
-            							} else {
-              								selectedBoxes.add(el);
-	              							el.setAttribute('color', this.data.activeColor);
-        	    						}
-          						}
-        					}
-      					});
+    					// Click / Shift‑Click selection
+    					window.addEventListener('mousedown', (event) => {
+      						updateMouse(event);
+      						raycaster.setFromCamera(mouse, sceneEl.camera);
 
-	      				// Movement keys apply to ALL selected boxes
-      					window.addEventListener('keydown', (event) => {
-        					if (selectedBoxes.size === 0) return;
+      						const intersects = raycaster.intersectObject(el.object3D, true);
 
-        					selectedBoxes.forEach(box => {
-          						const pos = box.getAttribute('position');
+      						if (intersects.length > 0) {
+        						if (event.shiftKey) {
+          							if (selectedBoxes.has(el)) {
+            								selectedBoxes.delete(el);
+            								el.setAttribute('color', originalColor);
+          							} else {
+            								selectedBoxes.add(el);
+            								el.setAttribute('color', this.data.activeColor);
+          							}
+        						} else {
+          							if (selectedBoxes.has(el)) {
+            								selectedBoxes.delete(el);
+            								el.setAttribute('color', originalColor);
+          							} else {
+            								selectedBoxes.add(el);
+            								el.setAttribute('color', this.data.activeColor);
+          							}
+        						}
+      						}
+    					});
 
-          						switch (event.key) {
-            							case 'i': case 'I': pos.z -= 0.2; break;
-	            						case 'k': case 'K': pos.z += 0.2; break;
-        	    						case 'j': case 'J': pos.x -= 0.2; break;
-            							case 'l': case 'L': pos.x += 0.2; break;
+    					// TRUE CAMERA‑RELATIVE GRID MOVEMENT (FINAL FIX)
+    					window.addEventListener('keydown', (event) => {
+      						if (selectedBoxes.size === 0) return;
 
-            							case 'u': case 'U': pos.y += 0.2; break;
-            							case 'o': case 'O': pos.y -= 0.2; break;
-          						}
+      						const step = this.data.step;
 
-          						box.setAttribute('position', pos);
-	        				});
-      					});
-    				}
-  			});
+      						// Get camera direction vectors
+      						const camObj = sceneEl.camera.el.object3D;
+
+      						const forward = new THREE.Vector3();
+      						camObj.getWorldDirection(forward);
+      						forward.y = 0;                 // flatten
+      						forward.normalize();
+
+      						const right = new THREE.Vector3();
+      						right.crossVectors(forward, new THREE.Vector3(0, 1, 0));
+      						right.normalize();
+
+      						// Snap forward/right to nearest axis (no diagonals)
+      						function snapAxis(v) {
+        						if (Math.abs(v.x) > Math.abs(v.z)) {
+          							return new THREE.Vector3(Math.sign(v.x), 0, 0);
+        						} else {
+          							return new THREE.Vector3(0, 0, Math.sign(v.z));
+        						}
+      						}
+
+      						const f = snapAxis(forward);
+      						const r = snapAxis(right);
+
+      						selectedBoxes.forEach(box => {
+        						const pos = box.getAttribute('position');
+        						let p = new THREE.Vector3(pos.x, pos.y, pos.z);
+
+        						switch (event.key) {
+          							case 'i': case 'I': p.addScaledVector(f, -step); break;
+          							case 'k': case 'K': p.addScaledVector(f, step); break;
+          							case 'j': case 'J': p.addScaledVector(r, step); break;
+          							case 'l': case 'L': p.addScaledVector(r, -step); break;
+
+          							case 'u': case 'U': p.y += step; break;
+          							case 'o': case 'O': p.y -= step; break;
+        						}
+
+       							// Snap to 0.02 grid
+       							p.x = Math.round(p.x / step) * step;
+        						p.y = Math.round(p.y / step) * step;
+        						p.z = Math.round(p.z / step) * step;
+
+        						box.setAttribute('position', p);
+      						});
+    					});
+  				}
+			});
 		</script>
   	</head>
   	<body>
@@ -177,8 +208,8 @@
   	    			<template id="avatar-template">
 					<a-entity class="avatar">
       						<a-sphere class="head"
-        						color="#5985ff"
-        						scale="0.45 0.5 0.4"
+							color="#5985ff"
+	     						scale="0.45 0.5 0.4"
 	      					></a-sphere>
 		      				<a-entity class="face"
         						position="0 0.05 0"
