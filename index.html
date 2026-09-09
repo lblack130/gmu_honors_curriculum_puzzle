@@ -111,6 +111,7 @@
 
     					const raycaster = new THREE.Raycaster();
     					const mouse = new THREE.Vector2();
+					
 
     					function updateMouse(event) {
       						const rect = sceneEl.canvas.getBoundingClientRect();
@@ -200,6 +201,86 @@
     					});
   				}
 			});
+		</script>
+		<script>
+  			// Uses the same selectedBoxes Set you already have
+  			const moveKeys = {};
+  			let moveTimer = null;
+
+  			function movementStep() {
+    				const step = 0.02; // same as your schema default
+    				if (selectedBoxes.size === 0) return;
+
+    				const sceneEl = document.querySelector('a-scene');
+    				if (!sceneEl || !sceneEl.camera) return;
+
+    				const camObj = sceneEl.camera.el.object3D;
+
+    				const forward = new THREE.Vector3();
+    				camObj.getWorldDirection(forward);
+    				forward.y = 0;
+    				forward.normalize();
+
+    				const right = new THREE.Vector3();
+    				right.crossVectors(forward, new THREE.Vector3(0, 1, 0));
+    				right.normalize();
+
+    				function snapAxis(v) {
+      					if (Math.abs(v.x) > Math.abs(v.z)) {
+        					return new THREE.Vector3(Math.sign(v.x), 0, 0);
+      					} else {
+        					return new THREE.Vector3(0, 0, Math.sign(v.z));
+      					}
+    				}
+
+    				const f = snapAxis(forward);
+    				const r = snapAxis(right);
+
+    				selectedBoxes.forEach(box => {
+      					const pos = box.getAttribute('position');
+      					let p = new THREE.Vector3(pos.x, pos.y, pos.z);
+
+      					if (moveKeys['i']) p.addScaledVector(f, -step);
+      					if (moveKeys['k']) p.addScaledVector(f, step);
+      					if (moveKeys['j']) p.addScaledVector(r, step);
+      					if (moveKeys['l']) p.addScaledVector(r, -step);
+
+      					if (moveKeys['u']) p.y += step;
+      					if (moveKeys['o']) p.y -= step;
+
+      					// Snap to your 0.02 grid
+      					p.x = Math.round(p.x / step) * step;
+      					p.y = Math.round(p.y / step) * step;
+      					p.z = Math.round(p.z / step) * step;
+
+      					box.setAttribute('position', p);
+    				});
+  			}
+
+  			window.addEventListener('keydown', (event) => {
+    				const k = event.key.toLowerCase();
+    				if (!['i','j','k','l','u','o'].includes(k)) return;
+
+    				moveKeys[k] = true;
+
+    				// Start repeating movement if not already running
+    				if (!moveTimer) {
+      					moveTimer = setInterval(movementStep, 50); // 20 steps per second, not animation
+    				}
+  			});
+
+  			window.addEventListener('keyup', (event) => {
+    				const k = event.key.toLowerCase();
+    				if (!['i','j','k','l','u','o'].includes(k)) return;
+
+    				moveKeys[k] = false;
+
+    				// Stop repeating when no movement keys are held
+    				if (!Object.values(moveKeys).some(Boolean)) {
+      					clearInterval(moveTimer);
+      					moveTimer = null;
+    				}
+  			});
 		</script>
   	</head>
   	<body>
