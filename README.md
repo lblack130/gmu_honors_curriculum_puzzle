@@ -12,8 +12,8 @@ D - Moves the player to the right
 Q - Rotates the camera to the left
 E - Rotates the camera to the right
 
-Shift - Moves the player down
-R - Moves the player up
+Shift - Moves the player up
+R - Moves the player down
 ```
 
 ## Box Controls
